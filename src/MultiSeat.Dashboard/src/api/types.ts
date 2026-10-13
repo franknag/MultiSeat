@@ -57,6 +57,18 @@ export interface SeatInfo {
    * seat was provisioned (issue #70). Null when there is no mismatch.
    */
   effectiveRefreshRateWarning: string | null;
+  /** The seat's own Steam when MultiSeat:SteamIsolation is on. Null or absent while it is off. */
+  steamIsolation?: SteamIsolationStatus | null;
+}
+
+export interface SteamIsolationStatus {
+  enabled: boolean;
+  /** The value given to steam.exe -master_ipc_name_override for this seat. */
+  ipcName: string;
+  /** The seat's own copy of the Steam client folder. */
+  folder: string;
+  /** True once that folder holds a steam.exe. */
+  folderPresent: boolean;
 }
 
 export type ScaleFactorSource = "Derived" | "HostDefault" | "Seat";

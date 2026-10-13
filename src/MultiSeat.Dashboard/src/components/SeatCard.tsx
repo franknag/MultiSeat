@@ -4,6 +4,7 @@ import { seats as seatsApi } from "../api/client";
 import { StatusBadge } from "./StatusBadge";
 import { ResizeControl } from "./ResizeControl";
 import { ScaleControl } from "./ScaleControl";
+import { SteamIsolationNote } from "./SteamIsolationNote";
 
 const PROVISION_STEPS: { key: string; label: string }[] = [
   { key: "Session",       label: "Session"    },
@@ -227,6 +228,8 @@ export function SeatCard({ seat, onUpdate }: Props) {
             App: {seat.launchApp}
           </div>
         )}
+
+        <SteamIsolationNote steam={seat.steamIsolation} />
 
         {seat.errorMessage && (
           <div className="error-banner">{seat.errorMessage}</div>
