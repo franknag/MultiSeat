@@ -30,7 +30,7 @@ MultiSeat runs multiple simultaneous Moonlight game-streaming sessions on one Wi
 | `GitHubReleaseClient` | The only code that would talk to the internet: unauthenticated GET of three release lists, every failure returned not thrown |
 | `UpdateStateStore` | `C:\ProgramData\MultiSeat\update-check.json` cache (ETags, candidates, baseline, backoff, hash cache) |
 | `UpdateEndpoints` | `GET /api/system/updates`, `POST .../updates/check`, `POST .../updates/settings` |
-| `SteamIsolation` | Opt-in (off by default): a private copy of the Steam client folder per seat plus `-master_ipc_name_override`, applied to every Steam launch path. See "Per-seat Steam" below |
+| `SteamIsolation` | Opt-in (off by default, partial protection): a private copy of the Steam client folder per seat plus `-master_ipc_name_override`, applied to the Steam launches that go through MultiSeat. See "Per-seat Steam" below |
 
 ## Port Layout
 
@@ -469,7 +469,7 @@ Because each seat is its own Windows account, games/ROMs would otherwise be silo
 
 ## Per-seat Steam (`MultiSeat:SteamIsolation`, off by default)
 
-Steam allows one instance per machine, so starting it in a seat closes the Steam in the console or in another seat. `-master_ipc_name_override <name>` lets two run side by side, but only on **separate client folders** (same folder: the second Steam fails to sign in). Both were verified by hand on 2026-10-13. Full write-up, with what is and is not verified: `docs/steam-isolation.md`.
+Steam allows one instance per machine, so starting it in a seat closes the Steam in the console or in another seat. Measured on a real host (2026-10-13): with a **separate client folder** per session and a per-seat `-master_ipc_name_override`, two Steams ran side by side, signed in and ran games. ⚠️ **But a Steam started WITHOUT an override can still deliver its command line to another session's Steam** (including the host's own shortcut, which MultiSeat cannot intercept), and the receiving Steam shut down; the mechanism is unknown. So the feature protects only launches that go through MultiSeat, and the host's Steam needs its own override too. Same folder for both: the second Steam fails to sign in. Open gap: the seat user's `steam://` handler is rewritten by Steam on every start without an override. Full write-up: `docs/steam-isolation.md`.
 
 - **One class does it all:** `Steam/SteamIsolation.cs` (names, matching, rewrite, seat folder) and `Steam/SteamClientCopier.cs` (the file walk). The three launch paths only call it: `SeatManager.LaunchAppInSeatAsync`, `OnConnectAppLauncher.OnConnect` (both through `PrepareLaunchAsync`) and `ApolloConfigBuilder.EnsureSeatAppsJson` (through `RewriteAppsJson`). Do not copy the rule into a fourth place.
 - **Disabled means identical.** Every method returns its input unchanged when `Enabled` is false; the services are optional constructor arguments so a missing one behaves the same.
@@ -477,7 +477,7 @@ Steam allows one instance per machine, so starting it in a seat closes the Steam
 - **The seat folder is not deleted on teardown.** It holds the player's login and downloads. It is locked to SYSTEM, Administrators and the seat (the same ACL as the seat's Apollo folders), narrower than the shared library's `Users` Modify.
 - **The copy never copies, deletes or follows:** `steamapps`, `config`, `logs`, `userdata`, `dumps`, `appcache`, `depotcache`, `htmlcache` (any depth), `loginusers.vdf`, `ssfn*`; no deletes; no reparse points. A refresh is triggered by a fingerprint of the system client (`ComputeMarker`), not by walking the tree.
 - Tests: `Tests/Steam/`. The launch-path tests drive the real `SeatManager`, `OnConnectAppLauncher` and `ApolloConfigBuilder` with a `ProcessInjector` subclass that records the launch (the method is `virtual` for exactly this).
-- ⚠️ Not verified: games and Steam's helper processes finding the right Steam; `bin\gldriverquery.exe` exited `0xC0000135` in a seat, cause unknown.
+- ⚠️ Not verified: how a Steam without an override reaches another Steam, whether a host-side override closes it, the `steam://` handler gap, anti-cheat/Cloud/Input. `bin\gldriverquery.exe` exited `0xC0000135` in a seat, cause unknown.
 
 ## Architecture Notes
 

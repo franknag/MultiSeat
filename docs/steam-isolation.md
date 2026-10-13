@@ -1,8 +1,10 @@
-# Per-seat Steam (optional, off by default)
+# Per-seat Steam (optional, off by default, partial protection)
 
-This page covers `MultiSeat:SteamIsolation`. It lets each seat run its own Steam at the same time as the console's Steam and the other seats' Steams.
+This page covers `MultiSeat:SteamIsolation`. It gives each seat its own copy of the Steam client and starts that copy with its own IPC name.
 
-The feature is **off by default**. With it off, MultiSeat launches Steam exactly as it did before. Read the "What is not verified" section before you turn it on.
+The feature is **off by default**. With it off, MultiSeat launches Steam exactly as it did before, and the seat JSON is unchanged.
+
+**It does not fix the problem in general.** It protects only the Steam launches that go through MultiSeat. A Steam started any other way, including the host's own shortcut, can still disturb a seat's Steam. Read "What we measured" and "What to do on the host" before you turn it on.
 
 ## The problem
 
@@ -14,10 +16,10 @@ In practice, starting Steam in a seat closes the Steam that is running in the co
 
 It does two things.
 
-1. **Each seat gets its own copy of the Steam client folder.** Two Steams that share one install folder fight over the same config, logs and login files. The second one fails to sign in. A separate folder avoids that.
+1. **Each seat gets its own copy of the Steam client folder.** Two Steams that share one install folder fight over the same config, logs and login files, and the second one failed to sign in. A separate folder avoided that in our test.
 2. **Each seat's Steam starts with its own IPC name.** MultiSeat adds `-master_ipc_name_override <name>` to the command line. Steam then looks for other instances only under that name.
 
-MultiSeat applies both whenever it starts the system Steam for a seat. It does this in all three places Steam can start:
+MultiSeat applies both whenever it starts the system Steam for a seat, in all three places MultiSeat can start Steam:
 
 - `POST /api/seats/{id}/launch` (and the dashboard's launch action).
 - `LaunchOnConnect` apps.
@@ -33,19 +35,42 @@ The rewrite follows these rules:
 - If the working directory was empty, or was the system Steam folder, it becomes the seat folder.
 - Running the rewrite on its own output changes nothing more.
 
-If the seat's folder cannot be prepared, the launch is **refused**. MultiSeat never falls back to the system Steam, because that is the exact thing that closes the other Steam.
+If the seat's folder cannot be prepared, the launch is **refused**. MultiSeat never falls back to the system Steam.
+
+## What we measured
+
+These results come from one real host on 2026-10-13. They are observations, not a general guarantee.
+
+1. **It can work.** With a separate Steam folder per session and a different `-master_ipc_name_override` for each, two Steams in two sessions ran side by side, signed in, and ran games.
+2. **A launch without an override can still interfere.** A Steam started *without* an override delivered its command line to the Steam in another session, and the receiving Steam then shut down. This happened in both directions. It includes the host's own shortcut launches, which MultiSeat cannot intercept.
+3. **We do not know the mechanism.** We have not found out how a Steam without an override reaches a Steam that has one.
+4. **So the feature protects only launches that go through MultiSeat**, and only when every other Steam on the machine also uses its own override. That is why it is opt-in.
+
+Not tested: anti-cheat, Steam Cloud, Steam Input, and how Big Picture behaves with several Steams. Launching a game directly (not through Steam) is not handled by this feature.
+
+## What to do on the host
+
+Start the host's own Steam with its own override too, for example:
+
+```
+steam.exe -master_ipc_name_override host
+```
+
+Put that in the shortcut or autostart entry you use, and use a name no seat uses (the seats' IPC names start with `ms-`). We have not yet shown that this closes the gap in every case. It is the step we recommend while testing.
+
+One more gap is known. Steam registers a `steam://` link handler for each user. A `steam://` link opened inside a seat starts that seat's Steam without an override. MultiSeat does not change that handler yet.
 
 ## What you need
 
 - **One Steam account per seat.** Each seat signs in to its own Steam. Two Steam clients cannot play with one account at the same time.
-- **About 1.4 GB of disk per seat.** That is the size of the copied client folder on the reference host. Games are not copied. They live in a Steam library, and the shared `SteamLibrary` folder works for that.
+- **About 1.4 GB of disk per seat.** That is the size of the copied client folder on the test host. Games are not copied. They live in a Steam library, and the shared `SteamLibrary` folder works for that.
 - **A normal Steam install on the host.** MultiSeat copies from it.
 
-Steam's terms of service are between you and Valve. This feature does not change them. Running several accounts on one PC, and sharing a game library between accounts, are both things you should check against Steam's current subscriber agreement and Family Sharing rules before you rely on them. This page makes no legal claim either way.
+Steam's terms of service are between you and Valve. This feature does not change them. Check Steam's current subscriber agreement and Family Sharing rules before you rely on several accounts on one PC. This page makes no legal claim either way.
 
 ## Turn it on
 
-Put this in `C:\Program Files\MultiSeat\appsettings.local.json`, then restart the service:
+Put this in `appsettings.local.json` in the MultiSeat install folder, then restart the service:
 
 ```jsonc
 {
@@ -76,7 +101,7 @@ The copy skips everything that belongs to one particular Steam. These are left o
 - Folders: `steamapps`, `logs`, `config`, `userdata`, `dumps`, `appcache`, `depotcache`, `htmlcache`.
 - Files: `loginusers.vdf`, and any file whose name starts with `ssfn` (the Steam Guard sentry files).
 
-Everything else is copied. This matches the `robocopy` command that was tested by hand on the reference host.
+Everything else is copied. This matches the `robocopy` command used in the manual test.
 
 MultiSeat builds the folder when the seat is provisioned, so the first Steam launch does not wait for the copy. It checks again at every Steam launch. If that check fails at provisioning, the seat still comes up, and Steam launches for it are refused until the folder can be built.
 
@@ -84,7 +109,7 @@ MultiSeat builds the folder when the seat is provisioned, so the first Steam lau
 
 Steam updates itself inside each seat's folder. When the system Steam is updated, MultiSeat sees that its small fingerprint of the client changed (size and time of `steam.exe`, the two client DLLs, and the files in `package`). The next launch then refreshes the seat's copy.
 
-A refresh only adds and overwrites client files. It never touches the seat's own `config`, `userdata`, `steamapps`, login files or caches. It never deletes anything.
+A refresh only adds and overwrites client files whose size or time differs. It never touches the seat's own `config`, `userdata`, `steamapps`, login files or caches. It never deletes anything.
 
 Two limits to know about:
 
@@ -95,13 +120,13 @@ Two limits to know about:
 
 The seat's folder is locked to SYSTEM, Administrators and that seat's account (Modify). It does not inherit from its parent.
 
-This is narrower than the shared game library, which gives `BUILTIN\Users` Modify. That is right for ROMs and `SteamLibrary`, which seats are meant to share. It is wrong for a folder that holds one player's Steam login, because every other seat could then read or replace it. The copy follows the same rule MultiSeat already uses for each seat's Apollo folders.
+This is narrower than the shared game library, which gives `BUILTIN\Users` Modify. That is right for ROMs and `SteamLibrary`, which seats are meant to share. It is wrong for a folder that holds one player's Steam login, because every other seat could then read or replace it.
 
 Nothing is followed through a link. A junction or symbolic link inside the Steam folder is skipped, and one inside the seat folder stops the copy of that subtree.
 
 ## What the dashboard and API show
 
-When the feature is on, each seat reports `steamIsolation` in its JSON, and its card on the dashboard shows the IPC name and whether the folder exists. When the feature is off, the field is `null` and the card shows nothing.
+When the feature is on, each seat reports `steamIsolation` in its JSON, and its card on the dashboard shows the IPC name and whether the folder exists. When the feature is off, the property is left out of the JSON entirely and the card shows nothing.
 
 ## Removing a seat's Steam folder
 
@@ -116,28 +141,25 @@ To switch the feature off, set `Enabled` to `false` and restart the service. Lau
 
 ## What is verified, and what is not
 
-**Verified by hand on the reference host (2026-10-13):**
-
-- `steam.exe -master_ipc_name_override gaming` lets two Steams run side by side in different sessions.
-- With both Steams on the same install folder, the seat's Steam failed to sign in.
-- With the seat on its own copy of the folder (made with the exclusions above, 1.36 GB), both Steams stayed running and the seat signed in with its own account.
+**Measured by hand on a real host (2026-10-13):** see "What we measured" above.
 
 **Verified by the automated tests in this repository:**
 
 - The IPC name rules, the path matching, and the argument rewrite.
-- What the copy includes and excludes, that a refresh keeps the seat's own files, and that links are not followed.
+- What the copy includes and excludes, that a refresh keeps the seat's own files and skips unchanged files, and that links are not followed.
 - That all three launch paths hand the rewritten launch to the process launcher, and that with the feature off they hand over exactly what they always did.
 
 The automated tests run the real launch code, but they stop short of starting a process in a Windows session.
 
 **Not verified:**
 
-- **Games and Steam's helper processes.** Nobody has yet shown that a game started from a seat's Steam finds that seat's Steam, rather than the console's. Do not assume it works. Test the games you care about.
-- **Launching a game directly** (not through Steam) is not handled by this feature.
-- **Anti-cheat, Steam Cloud, Steam Input and Big Picture** behaviour with several Steams at once.
-- **Provisioning with the feature on.** The step that builds the folder at provisioning is wired in and best-effort, but no automated test drives a full seat provision.
+- How a Steam without an override reaches another Steam (mechanism unknown).
+- Whether an override on the host's Steam closes that gap in every case.
+- The `steam://` handler gap described above.
+- Anti-cheat, Steam Cloud, Steam Input and Big Picture with several Steams.
+- Provisioning with the feature on. The step that builds the folder at provisioning is wired in and best-effort, but no automated test drives a full seat provision.
 
-**A known unknown.** During the manual test, the shader helper `bin\gldriverquery.exe` exited in the seat with code 3221225781 (`0xC0000135`, a DLL it needs was not found). The cause is not known, and this feature does not try to fix it.
+**A known unknown.** During the manual test, the shader helper `bin\gldriverquery.exe` exited in a seat with code 3221225781 (`0xC0000135`, a DLL it needs was not found). The cause is not known, and this feature does not try to fix it.
 
 ## Related work
 
