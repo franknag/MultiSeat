@@ -480,6 +480,13 @@ public sealed class MultiSeatOptions
     public bool EnableSharedGameLibrary { get; set; } = true;
     public string SharedGameLibraryDir { get; set; } = @"C:\MultiSeatGames";
 
+    // ── Per-seat Steam client (opt-in) ───────────────────────────────
+    // Steam allows one running instance per machine, so starting it in a seat closes the Steam in
+    // the console session or in another seat. With this on, each seat gets its own copy of the
+    // Steam client folder and a private IPC name, and every launch of the system steam.exe is
+    // redirected there. Off by default; see docs/steam-isolation.md before turning it on.
+    public SteamIsolationOptions SteamIsolation { get; set; } = new();
+
     // ── Emulator netplay ─────────────────────────────────────────────
     // Assign each seat a deterministic, collision-free netplay port from its own port block
     // (seat.PortBase + Constants.OffsetRetroArchNetplay) and open it in the firewall. Seats
@@ -512,6 +519,30 @@ public sealed class MultiSeatOptions
     // Absolute path to the repo root. Required for the dashboard Rebuild button.
     // Example: C:\MultiSeat-Development
     public string SourceDir { get; set; } = string.Empty;
+}
+
+/// <summary>
+/// MultiSeat:SteamIsolation. Gives every seat its own copy of the Steam client folder so several
+/// Steams can run at once, one per session. Off by default; a default install is unchanged.
+/// </summary>
+public sealed class SteamIsolationOptions
+{
+    /// <summary>Master switch. When false nothing below is read and no launch is rewritten.</summary>
+    public bool Enabled { get; set; } = false;
+
+    /// <summary>
+    /// The Steam client folder to copy from, and the steam.exe whose launches get redirected.
+    /// Empty = read InstallPath from HKLM\SOFTWARE\WOW6432Node\Valve\Steam, then fall back to
+    /// C:\Program Files (x86)\Steam.
+    /// </summary>
+    public string SourceDir { get; set; } = string.Empty;
+
+    /// <summary>
+    /// The folder that holds the per-seat copies, one "Steam-&lt;account&gt;" folder each.
+    /// Empty = <see cref="MultiSeatOptions.SharedGameLibraryDir"/>, so the copies sit beside the
+    /// shared SteamLibrary. Each copy is locked to SYSTEM, Administrators and its seat.
+    /// </summary>
+    public string SeatRootDir { get; set; } = string.Empty;
 }
 
 /// <summary>

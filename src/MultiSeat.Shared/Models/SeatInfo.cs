@@ -145,6 +145,27 @@ public sealed class SeatInfo
     public bool AutoStart { get; set; } = false;
     public NvencQualityPreset NvencPreset { get; set; } = NvencQualityPreset.Balanced;
 
+    /// <summary>
+    /// The seat's own Steam client, when MultiSeat:SteamIsolation is on. Null when it is off, so a
+    /// default install shows nothing new. Refreshed at provisioning and after each Steam launch.
+    /// </summary>
+    public SteamIsolationStatus? SteamIsolation { get; set; }
+
     // Granular provisioning progress — set at each major step, cleared on Ready/Error
     public string? ProvisioningStep { get; set; }
+}
+
+/// <summary>What MultiSeat:SteamIsolation has set up for one seat.</summary>
+public sealed class SteamIsolationStatus
+{
+    public bool Enabled { get; init; }
+
+    /// <summary>The value passed to <c>steam.exe -master_ipc_name_override</c> for this seat.</summary>
+    public string IpcName { get; init; } = string.Empty;
+
+    /// <summary>The seat's own copy of the Steam client folder.</summary>
+    public string Folder { get; init; } = string.Empty;
+
+    /// <summary>True once the folder holds a steam.exe. It is built at provisioning or on first launch.</summary>
+    public bool FolderPresent { get; init; }
 }
