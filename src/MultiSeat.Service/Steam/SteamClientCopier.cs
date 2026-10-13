@@ -117,6 +117,7 @@ internal static class SteamClientCopier
     internal static SyncResult Sync(string sourceDir, string seatDir, CancellationToken ct)
     {
         var failures = new List<string>();
+        var destinationRoot = Path.GetFullPath(seatDir).TrimEnd(Path.DirectorySeparatorChar);
         int copied = 0, reparse = 0;
         long bytes = 0;
 
@@ -151,6 +152,9 @@ internal static class SteamClientCopier
                 if (entry is DirectoryInfo dir)
                 {
                     if (IsExcludedDirectory(dir.Name)) continue;
+                    // Second line of defence behind SteamIsolation.RefuseOverlap: never walk into
+                    // the folder being written, or the copy would chase its own output forever.
+                    if (string.Equals(dir.FullName.TrimEnd(Path.DirectorySeparatorChar), destinationRoot, StringComparison.OrdinalIgnoreCase)) continue;
                     Walk(dir, Path.Combine(dst, dir.Name));
                 }
                 else if (entry is FileInfo file)

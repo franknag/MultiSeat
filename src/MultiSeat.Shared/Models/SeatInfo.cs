@@ -146,9 +146,11 @@ public sealed class SeatInfo
     public NvencQualityPreset NvencPreset { get; set; } = NvencQualityPreset.Balanced;
 
     /// <summary>
-    /// The seat's own Steam client, when MultiSeat:SteamIsolation is on. Null when it is off, so a
-    /// default install shows nothing new. Refreshed at provisioning and after each Steam launch.
+    /// The seat's own Steam client, when MultiSeat:SteamIsolation is on. Null when it is off, and
+    /// then it is left out of the JSON entirely, so a default install's seat JSON is unchanged.
+    /// Refreshed at provisioning and after each Steam launch.
     /// </summary>
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull)]
     public SteamIsolationStatus? SteamIsolation { get; set; }
 
     // Granular provisioning progress — set at each major step, cleared on Ready/Error

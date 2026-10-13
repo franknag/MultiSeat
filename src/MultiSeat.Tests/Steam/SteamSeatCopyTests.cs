@@ -118,6 +118,48 @@ public class SteamSeatCopyTests
     }
 
     [Fact]
+    public async Task Refresh_LeavesAnUnchangedFileUntouched_ItOnlyCopiesWhatDiffers()
+    {
+        using var sb = new SteamSandbox();
+        var iso = sb.Isolation();
+        var seatDir = (await iso.EnsureSeatCopyAsync("Seat01", NoCancel)).SeatDir;
+
+        // Plant bytes in the seat's copy that differ from the source but have the SAME size and
+        // write time. A refresh that trusts size and write time must leave them alone; one that
+        // recopies every file would put the source's bytes back.
+        var unchanged = Path.Combine(seatDir, @"public\steam.css");
+        var original = File.ReadAllText(unchanged);
+        var planted = new string('Z', original.Length);
+        var stamp = File.GetLastWriteTimeUtc(unchanged);
+        File.WriteAllText(unchanged, planted);
+        File.SetLastWriteTimeUtc(unchanged, stamp);
+
+        // A real client update elsewhere triggers the refresh.
+        File.WriteAllText(Path.Combine(sb.SteamDir, "steam.exe"), "new client build");
+
+        var refresh = await iso.EnsureSeatCopyAsync("Seat01", NoCancel);
+
+        Assert.False(refresh.UpToDate);
+        Assert.Equal(1, refresh.FilesCopied);                          // only steam.exe
+        Assert.Equal(planted, File.ReadAllText(unchanged));            // bytes untouched
+        Assert.Equal(stamp, File.GetLastWriteTimeUtc(unchanged));      // write time untouched
+        Assert.Equal("new client build", File.ReadAllText(Path.Combine(seatDir, "steam.exe")));
+    }
+
+    [Fact]
+    public void Sync_NeverWalksIntoTheFolderItIsWriting_EvenIfItSitsInsideTheSource()
+    {
+        using var sb = new SteamSandbox();
+        var inside = Path.Combine(sb.SteamDir, "seats", "Steam-Seat01");
+
+        var result = SteamClientCopier.Sync(sb.SteamDir, inside, NoCancel);
+
+        Assert.Empty(result.Failures);
+        Assert.DoesNotContain(SteamSandbox.RelativeFiles(inside), f => f.StartsWith("seats", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(Expected(SteamSandbox.ClientFiles), SteamSandbox.RelativeFiles(inside));
+    }
+
+    [Fact]
     public async Task Refresh_NeverDeletesAFileTheSourceNoLongerHas()
     {
         using var sb = new SteamSandbox();
