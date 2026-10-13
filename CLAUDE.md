@@ -30,6 +30,7 @@ MultiSeat runs multiple simultaneous Moonlight game-streaming sessions on one Wi
 | `GitHubReleaseClient` | The only code that would talk to the internet: unauthenticated GET of three release lists, every failure returned not thrown |
 | `UpdateStateStore` | `C:\ProgramData\MultiSeat\update-check.json` cache (ETags, candidates, baseline, backoff, hash cache) |
 | `UpdateEndpoints` | `GET /api/system/updates`, `POST .../updates/check`, `POST .../updates/settings` |
+| `SteamIsolation` | Opt-in (off by default): a private copy of the Steam client folder per seat plus `-master_ipc_name_override`, applied to every Steam launch path. See "Per-seat Steam" below |
 
 ## Port Layout
 
@@ -465,6 +466,18 @@ Because each seat is its own Windows account, games/ROMs would otherwise be silo
 - **Shared game library** (`EnableSharedGameLibrary`, default on; `SharedGameLibraryDir`, default `C:\MultiSeatGames`). `SharedLibraryProvisioner.EnsureSharedLibraryAsync` runs once at startup: creates `…\SteamLibrary` + `…\ROMs` and grants `BUILTIN\Users` Modify via `icacls` (well-known SID `S-1-5-32-545`). Point each seat's Steam at the `SteamLibrary` folder (Settings → Storage) so a game an owning account already installed there isn't re-downloaded. ROMs go in `…\ROMs`.
 - **Emulator netplay** (`EnableEmulatorNetplay`, default on). Each seat gets a deterministic, collision-free RetroArch host port from its own block: `seat.PortBase + Constants.OffsetRetroArchNetplay` (offset 13 → seat 0 = 48113, seat 1 = 48143…), surfaced as `SeatInfo.RetroArchNetplayPort` and opened in the firewall. Seats netplay each other over **loopback**: in one seat "Host", in another "Connect to Netplay Host" → `127.0.0.1:<host-seat-port>`. Netplay requires identical core **and** content — the shared ROM dir keeps file CRCs matching.
 - **RetroArch auto-config** (`SeedRetroArchNetplayConfig`, default **off** — it writes a user file). When on, `RetroArchConfigSeeder` (an `IEmulatorConfigSeeder`) upserts `netplay_ip_port`, `netplay_public_announce=false`, `netplay_nat_traversal=false`, and `rgui_browser_directory` into each seat's `retroarch.cfg` during provisioning (mirrors the RustDesk seed in `SeatManager` step 2.5). Add Dolphin/PCSX2 by registering another `IEmulatorConfigSeeder` — no `SeatManager` change.
+
+## Per-seat Steam (`MultiSeat:SteamIsolation`, off by default)
+
+Steam allows one instance per machine, so starting it in a seat closes the Steam in the console or in another seat. `-master_ipc_name_override <name>` lets two run side by side, but only on **separate client folders** (same folder: the second Steam fails to sign in). Both were verified by hand on 2026-10-13. Full write-up, with what is and is not verified: `docs/steam-isolation.md`.
+
+- **One class does it all:** `Steam/SteamIsolation.cs` (names, matching, rewrite, seat folder) and `Steam/SteamClientCopier.cs` (the file walk). The three launch paths only call it: `SeatManager.LaunchAppInSeatAsync`, `OnConnectAppLauncher.OnConnect` (both through `PrepareLaunchAsync`) and `ApolloConfigBuilder.EnsureSeatAppsJson` (through `RewriteAppsJson`). Do not copy the rule into a fourth place.
+- **Disabled means identical.** Every method returns its input unchanged when `Enabled` is false; the services are optional constructor arguments so a missing one behaves the same.
+- **A refusal never falls back.** If the seat's folder cannot be built, the launch throws (`ResourceConflictException` over the API) instead of starting the system Steam, which is the thing that closes the other Steam.
+- **The seat folder is not deleted on teardown.** It holds the player's login and downloads. It is locked to SYSTEM, Administrators and the seat (the same ACL as the seat's Apollo folders), narrower than the shared library's `Users` Modify.
+- **The copy never copies, deletes or follows:** `steamapps`, `config`, `logs`, `userdata`, `dumps`, `appcache`, `depotcache`, `htmlcache` (any depth), `loginusers.vdf`, `ssfn*`; no deletes; no reparse points. A refresh is triggered by a fingerprint of the system client (`ComputeMarker`), not by walking the tree.
+- Tests: `Tests/Steam/`. The launch-path tests drive the real `SeatManager`, `OnConnectAppLauncher` and `ApolloConfigBuilder` with a `ProcessInjector` subclass that records the launch (the method is `virtual` for exactly this).
+- ⚠️ Not verified: games and Steam's helper processes finding the right Steam; `bin\gldriverquery.exe` exited `0xC0000135` in a seat, cause unknown.
 
 ## Architecture Notes
 
