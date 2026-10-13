@@ -67,6 +67,7 @@ public sealed class SeatManager
     /// </summary>
     private readonly Monitoring.HostApolloMonitor _hostApollo;
     private readonly IEnumerable<IEmulatorConfigSeeder> _emulatorSeeders;
+    private readonly Steam.SteamIsolation? _steamIsolation;
     private readonly SeatLifecycleGate _lifecycleGate;
 
     /// <summary>
@@ -97,8 +98,10 @@ public sealed class SeatManager
         Monitoring.HostApolloMonitor hostApollo,
         IEnumerable<IEmulatorConfigSeeder> emulatorSeeders,
         SeatLifecycleGate lifecycleGate,
-        DwmFrameIntervalSetting? dwmFrameInterval = null)
+        DwmFrameIntervalSetting? dwmFrameInterval = null,
+        Steam.SteamIsolation? steamIsolation = null)
     {
+        _steamIsolation = steamIsolation;
         _logger = logger;
         _options = options.Value;
         _accounts = accounts;
@@ -475,6 +478,25 @@ public sealed class SeatManager
                 }
             }
 
+            // ── 5.8. Per-seat Steam client (opt-in, best-effort) ──────────
+            // Build the seat's own copy of the Steam client folder now, so the first Steam launch
+            // does not wait on a 1.4 GB copy. Failing here never fails provisioning: the launch
+            // paths ensure the copy again and refuse to start Steam without it.
+            if (_steamIsolation is { Enabled: true })
+            {
+                try
+                {
+                    await _steamIsolation.EnsureSeatCopyAsync(seat.AccountName, ct);
+                }
+                catch (Exception ex) when (ex is not OperationCanceledException)
+                {
+                    _logger.LogWarning(ex,
+                        "Seat {Id}: could not prepare the seat's Steam folder (non-critical; Steam launches " +
+                        "for this seat are refused until it can be built)", seat.Id);
+                }
+                seat.SteamIsolation = _steamIsolation.Describe(seat.AccountName);
+            }
+
             // ── 6. Apollo streaming ───────────────────────────────────────
             // Apollo is launched AFTER display + audio so it can capture both.
             // The session is still ACTIVE (mstsc connected) so Apollo's SudoVDA IPC
@@ -644,9 +666,28 @@ public sealed class SeatManager
         if (seat.Status is not SeatStatus.Ready and not SeatStatus.Streaming)
             throw new ResourceConflictException($"Seat is in {seat.Status} state — cannot launch apps.");
 
+        // Starting the system Steam from a seat would close the Steam in the console or in another
+        // seat, so with MultiSeat:SteamIsolation on it is redirected to this seat's own copy.
+        // Anything that is not the system steam.exe, or any launch with the feature off, goes
+        // through unchanged. A refusal (no Steam to copy) is a conflict, not a bad request.
+        Steam.SteamLaunch launch;
+        try
+        {
+            launch = _steamIsolation is null
+                ? new Steam.SteamLaunch(request.ExecutablePath, request.Arguments, request.WorkingDirectory, false)
+                : await _steamIsolation.PrepareLaunchAsync(
+                    seat.AccountName, request.ExecutablePath, request.Arguments, request.WorkingDirectory, ct);
+        }
+        catch (Steam.SteamIsolationException ex)
+        {
+            throw new ResourceConflictException(ex.Message);
+        }
+
         await _processInjector.LaunchInSessionAsync(
             seat.SessionId, seat.AccountName,
-            request.ExecutablePath, request.Arguments, request.WorkingDirectory, ct);
+            launch.Executable, launch.Arguments, launch.WorkingDirectory, ct);
+
+        if (launch.Rewritten) seat.SteamIsolation = _steamIsolation!.Describe(seat.AccountName);
 
         seat.TransitionTo(SeatStatus.Streaming, _logger);
         seat.LaunchApp = request.ExecutablePath;

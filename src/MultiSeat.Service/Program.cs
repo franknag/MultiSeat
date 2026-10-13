@@ -335,6 +335,7 @@ builder.Services.AddSingleton<SeatReconciler>();
 // Shared game library + emulator config seeders (register each seeder as IEmulatorConfigSeeder
 // so SeatManager picks them up; add Dolphin/PCSX2 seeders here later with no other changes).
 builder.Services.AddSingleton<SharedLibraryProvisioner>();
+builder.Services.AddSingleton<MultiSeat.Service.Steam.SteamIsolation>();
 builder.Services.AddSingleton<IEmulatorConfigSeeder, RetroArchConfigSeeder>();
 
 builder.Services.AddSingleton<SeatManager>();

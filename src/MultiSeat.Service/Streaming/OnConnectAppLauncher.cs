@@ -4,6 +4,7 @@ using System.Text;
 using Microsoft.Extensions.Options;
 using MultiSeat.Service.Configuration;
 using MultiSeat.Service.Sessions;
+using MultiSeat.Service.Steam;
 using MultiSeat.Shared.Models;
 
 namespace MultiSeat.Service.Streaming;
@@ -42,6 +43,7 @@ public sealed class OnConnectAppLauncher
     private readonly MultiSeatOptions _options;
     private readonly ApolloManager _apollo;
     private readonly ProcessInjector _injector;
+    private readonly SteamIsolation? _steam;
 
     private readonly ConcurrentDictionary<Guid, SeatConnState> _states = new();
 
@@ -49,12 +51,14 @@ public sealed class OnConnectAppLauncher
         ILogger<OnConnectAppLauncher> logger,
         IOptions<MultiSeatOptions> options,
         ApolloManager apollo,
-        ProcessInjector injector)
+        ProcessInjector injector,
+        SteamIsolation? steam = null)
     {
         _logger = logger;
         _options = options.Value;
         _apollo = apollo;
         _injector = injector;
+        _steam = steam;
     }
 
     /// <summary>
@@ -187,8 +191,19 @@ public sealed class OnConnectAppLauncher
                     if (string.IsNullOrWhiteSpace(app.Path)) continue;
                     try
                     {
+                        // Steam is the one launcher that must not start on the system install
+                        // (it would close the Steam running in the console or another seat), so
+                        // it goes through SteamIsolation. With that off, or for any other app,
+                        // the launch below is exactly what was configured.
+                        var launch = _steam is null
+                            ? new SteamLaunch(app.Path, app.Arguments, app.WorkingDirectory, false)
+                            : await _steam.PrepareLaunchAsync(
+                                account, app.Path, app.Arguments, app.WorkingDirectory, ct);
+
                         var pid = await _injector.LaunchInSessionAsync(
-                            sessionId, account, app.Path, app.Arguments, app.WorkingDirectory, ct);
+                            sessionId, account, launch.Executable, launch.Arguments,
+                            launch.WorkingDirectory, ct);
+                        if (launch.Rewritten) seat.SteamIsolation = _steam!.Describe(account);
                         if (pid > 0)
                         {
                             lock (state.Gate) state.LaunchedPids.Add(pid);

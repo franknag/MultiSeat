@@ -33,11 +33,15 @@ public sealed class ApolloConfigBuilder
 {
     private readonly ILogger<ApolloConfigBuilder> _logger;
     private readonly MultiSeatOptions _options;
+    private readonly Steam.SteamIsolation? _steam;
 
-    public ApolloConfigBuilder(ILogger<ApolloConfigBuilder> logger, IOptions<MultiSeatOptions> options)
+    public ApolloConfigBuilder(
+        ILogger<ApolloConfigBuilder> logger, IOptions<MultiSeatOptions> options,
+        Steam.SteamIsolation? steam = null)
     {
         _logger = logger;
         _options = options.Value;
+        _steam = steam;
     }
 
     /// <summary>
@@ -488,6 +492,18 @@ public sealed class ApolloConfigBuilder
         {
             var json = File.ReadAllText(source);
             var stripped = StripConsoleOnlyAppKeys(json, out var removed);
+
+            // With MultiSeat:SteamIsolation on, an app that starts the system Steam would close
+            // the Steam in the console or another seat, so it is pointed at this seat's copy.
+            // Off, or no such app: the text is left exactly as it was.
+            if (_steam is not null)
+            {
+                stripped = _steam.RewriteAppsJson(accountName, stripped, out var steamApps);
+                if (steamApps > 0)
+                    _logger.LogInformation(
+                        "Seat {Account}: {Count} app(s) in apps.json now start the seat's own Steam",
+                        accountName, steamApps);
+            }
 
             // Atomic: Apollo reads this at startup. The seat grant below targets the
             // NEW file object, so it stays after the move (a rename does not carry ACEs).

@@ -21,7 +21,7 @@ namespace MultiSeat.Service.Sessions;
 ///   - MultiSeat service must run as SYSTEM (for WTSQueryUserToken + SeTcbPrivilege)
 ///   - Target session must already exist (created by SessionLauncher)
 /// </summary>
-public sealed class ProcessInjector
+public class ProcessInjector
 {
     private readonly ILogger<ProcessInjector> _logger;
     private readonly MultiSeatOptions _options;
@@ -41,7 +41,8 @@ public sealed class ProcessInjector
     /// Launch a process inside the specified Windows session.
     /// Returns the PID of the launched process.
     /// </summary>
-    public async Task<int> LaunchInSessionAsync(
+    // virtual so tests can observe exactly what a launch path hands over, without a Windows session.
+    public virtual async Task<int> LaunchInSessionAsync(
         int sessionId,
         string accountName,
         string exePath,
