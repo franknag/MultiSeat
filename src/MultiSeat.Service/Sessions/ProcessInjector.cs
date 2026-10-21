@@ -49,7 +49,8 @@ public sealed class ProcessInjector
         string? arguments = null,
         string? workingDir = null,
         CancellationToken ct = default,
-        bool allowConsoleSession = false)
+        bool allowConsoleSession = false,
+        bool minimized = false)
     {
         _logger.LogInformation(
             "Launching '{Exe}' in session {Sid} (account: {Account})",
@@ -131,7 +132,7 @@ public sealed class ProcessInjector
                 cb = Marshal.SizeOf<Kernel32.StartupInfo>(),
                 lpDesktop = @"WinSta0\Default",
                 dwFlags = Kernel32.STARTF_USESHOWWINDOW,
-                wShowWindow = Kernel32.SW_SHOW  // games should be visible
+                wShowWindow = ShowWindowFor(minimized)
             };
 
             var creationFlags = CreationFlagsFor(launchPlan.Supervised);
@@ -210,6 +211,15 @@ public sealed class ProcessInjector
         Kernel32.NORMAL_PRIORITY_CLASS;
 
     /// <summary>
+    /// Initial window state for a launch in a seat. Games are shown, as they always were. Seat
+    /// Apollo is started minimized without taking focus, so its console does not sit in the seat's
+    /// view. It keeps its console (CREATE_NEW_CONSOLE, not CREATE_NO_WINDOW) so GetConsoleWindow
+    /// stays non-NULL for Apollo's restart and quit logic; see issue #120.
+    /// </summary>
+    internal static short ShowWindowFor(bool minimized) =>
+        minimized ? Kernel32.SW_SHOWMINNOACTIVE : Kernel32.SW_SHOW;
+
+    /// <summary>
     /// Launch Apollo streaming server inside a target session.
     /// Special handling: Apollo needs specific env vars and the config path.
     /// </summary>
@@ -220,18 +230,29 @@ public sealed class ProcessInjector
         string configPath,
         CancellationToken ct)
     {
-        var arguments = $"\"{configPath}\"";
+        var request = ApolloLaunchRequestFor(apolloExePath, configPath);
+        return LaunchInSessionAsync(
+            sessionId, accountName,
+            request.ExePath, request.Arguments,
+            request.WorkingDir,
+            ct,
+            minimized: request.Minimized);
+    }
 
+    /// <summary>What a seat Apollo launch asks LaunchInSessionAsync for.</summary>
+    internal readonly record struct ApolloLaunchRequest(
+        string ExePath, string Arguments, string? WorkingDir, bool Minimized);
+
+    /// <summary>
+    /// Builds the seat Apollo launch request. The one place that decides Apollo starts minimized
+    /// (issue #120).
+    /// </summary>
+    internal static ApolloLaunchRequest ApolloLaunchRequestFor(string apolloExePath, string configPath) =>
         // Working dir = per-seat config dir (not the Apollo install dir).
         // Apollo resolves sunshine_state.json from {workingDir}/config/sunshine_state.json.
         // Each seat must have its own working dir so they get distinct UUIDs and
         // Moonlight can list them as separate servers.
-        return LaunchInSessionAsync(
-            sessionId, accountName,
-            apolloExePath, arguments,
-            Path.GetDirectoryName(configPath),
-            ct);
-    }
+        new(apolloExePath, $"\"{configPath}\"", Path.GetDirectoryName(configPath), Minimized: true);
 
     /// <summary>
     /// Refuse to launch a seat's process into the console session.
