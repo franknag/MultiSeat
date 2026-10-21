@@ -99,7 +99,7 @@ public sealed class ApolloConfigBuilder
         // with the same account are distinguishable (e.g. MultiSeat-RogAlly-1).
         var seatNumber = (seat.PortBase - Constants.PortBase) / Constants.PortsPerSeat + 1;
         sb.AppendLine("# Server identity");
-        sb.AppendLine($"sunshine_name = MultiSeat-{seat.AccountName}-{seatNumber}");
+        sb.AppendLine($"sunshine_name = {seat.AccountName}-{Environment.MachineName}");
         sb.AppendLine();
 
         // ── Network ports ─────────────────────────────────────────────
@@ -317,6 +317,7 @@ public sealed class ApolloConfigBuilder
         sb.AppendLine($"cert = {tlsDir}/cacert.pem");
         // Each seat has independent pairing — Moonlight pairs per-seat
         sb.AppendLine("origin_web_ui_allowed = lan");
+        sb.AppendLine("system_tray = disabled");
         sb.AppendLine();
 
         // ── Streaming quality ─────────────────────────────────────────
