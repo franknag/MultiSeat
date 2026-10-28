@@ -132,6 +132,7 @@ public sealed class ApolloConfigBuilder
         var allFps = new[] { 30, 60, 90, 120, 144, 160, 240 };
         var fpsList = string.Join(", ", allFps.Where(f => f <= seat.Fps));
         sb.AppendLine($"fps = [{fpsList}]");
+        sb.AppendLine("minimum_fps_target = 1");
         sb.AppendLine();
 
         // ── Display-device auto-configuration ─────────────────────────
@@ -169,6 +170,7 @@ public sealed class ApolloConfigBuilder
         sb.AppendLine("# Headless — force every app into a virtual display. Without this,");
         sb.AppendLine("# Apollo never creates SudoVDA in an RDP seat and captures the RDP surface.");
         sb.AppendLine("headless_mode = enabled");
+        sb.AppendLine("capture = wgc");
         sb.AppendLine();
 
         // ── Encoder ───────────────────────────────────────────────────
