@@ -152,7 +152,7 @@ public sealed class ApolloConfigBuilder
         // keys back, which is what made it look like it was doing something. Measured and
         // reported in issue #15.
         sb.AppendLine("# Display device — match the Moonlight client's requested resolution/fps");
-        sb.AppendLine("dd_configuration_option = ensure_primary");
+        sb.AppendLine("dd_configuration_option = ensure_only_display");
         sb.AppendLine("dd_resolution_option = auto");
         sb.AppendLine("dd_refresh_rate_option = auto");
         sb.AppendLine();
